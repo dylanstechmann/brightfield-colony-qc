@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "colonyqc"
+version = "0.1.0"
+description = "Brightfield colony morphology QC with a synthetic bake-off."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Dylan Stechmann"}]
+dependencies = [
+  "numpy",
+]
+
+[project.scripts]
+colonyqc = "colonyqc.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
