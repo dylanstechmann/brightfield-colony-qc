@@ -9,6 +9,7 @@ import sys
 import numpy as np
 
 from colonyqc.features import featurize
+from colonyqc.manifest import export_features, read_image
 from colonyqc.model import SoftmaxQC, accuracy, majority_accuracy
 from colonyqc.report import build_report
 from colonyqc.synthetic import box_blur, dataset, read_pgm
@@ -46,7 +47,7 @@ def demo(seed: int) -> dict:
 
 def score_path(model_path: str, image_path: str) -> dict:
     model = SoftmaxQC.load(model_path)
-    img = read_pgm(image_path)
+    img = read_image(image_path)
     feat = featurize(img)
     proba = model.predict_proba(feat.reshape(1, -1))[0]
     mapping = {name: float(p) for name, p in zip(model.classes, proba)}
@@ -65,7 +66,18 @@ def main(argv=None) -> int:
     t = sub.add_parser("train", help="fit on the synthetic generator and save weights")
     t.add_argument("--out", required=True)
     t.add_argument("--seed", type=int, default=0)
+    e = sub.add_parser("export-features", help="export an annotated image manifest for grouped evaluation")
+    e.add_argument("manifest")
+    e.add_argument("--out", required=True)
     args = parser.parse_args(argv)
+    if args.cmd == "export-features":
+        try:
+            result = export_features(args.manifest, args.out)
+        except (ValueError, OSError) as exc:
+            parser.error(str(exc))
+        json.dump(result, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 0
     if args.cmd == "demo":
         json.dump(demo(args.seed), sys.stdout, indent=2)
         sys.stdout.write("\n")

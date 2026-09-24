@@ -27,7 +27,7 @@ PYTHONPATH=src python3 -m colonyqc.cli demo --seed 0
 PYTHONPATH=src python3 -m colonyqc.cli train --out artifacts/model.json
 ```
 
-`predict` reads a binary PGM (`P5`). The generator can write one:
+`predict` reads a binary PGM (`P5`), or 8-bit grayscale PNG/TIFF with the optional images extra. The generator can write one:
 
 ```bash
 PYTHONPATH=src python3 - << 'PY'
@@ -49,3 +49,37 @@ The last label is a filament-like texture class. It is not a microbe ID.
 ## License
 
 MIT. Cite the staining papers and the assay vendor, not this model, if you write about a real culture.
+
+## Annotated-image import (v0.2)
+
+Install with `python -m pip install -e '.[images]'` for PNG/TIFF, or `-e .`
+for PGM only. PNG/TIFF inputs must be single-frame 8-bit grayscale. There is
+no automatic per-image normalization or RGB conversion; record any conversion
+and image scale upstream. These fixed-threshold features are scale-sensitive.
+
+A manifest has `sample_id,image_path,label,group_id` columns, with optional
+`donor_id,batch_id,plate_id`. Paths are relative to the manifest. The labels
+are supplied annotations. Use the four labels listed above; no label is inferred
+by the importer. Exact duplicate image bytes and duplicate IDs are rejected.
+
+```bash
+python -m pip install -e .
+python examples/make_synthetic_manifest.py
+colonyqc export-features artifacts/manifest-demo/manifest.csv --out artifacts/features.csv
+```
+
+The helper generates only **synthetic** fields. Export writes a numerical
+feature CSV and a provenance sidecar with image/manifest/output SHA-256 hashes.
+It preserves grouping metadata for
+[regen-benchmark-kit](https://github.com/dylanstechmann/regen-benchmark-kit):
+
+```bash
+# After installing regen-benchmark-kit into this environment:
+regenbench run artifacts/features.csv --group-by donor_id,batch_id \
+  --folds 4 --out artifacts/grouped-benchmark
+```
+
+Keep related fields, wells and donors together. Splitting image rows randomly
+can leak experimental identity. Exact hashes cannot detect near-duplicate crops.
+The importer makes real-data evaluation possible; it does not validate a real
+cell classifier. `train` still fits the synthetic model.

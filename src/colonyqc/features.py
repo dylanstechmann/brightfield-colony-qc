@@ -22,8 +22,11 @@ FEATURE_NAMES = (
 
 
 def featurize(img: np.ndarray) -> np.ndarray:
-    if img.ndim != 2:
-        raise ValueError("expected a single grayscale image")
+    img = np.asarray(img, dtype=np.float64)
+    if img.ndim != 2 or not img.size:
+        raise ValueError("expected a nonempty single grayscale image")
+    if not np.isfinite(img).all() or np.any(img < 0) or np.any(img > 1):
+        raise ValueError("image values must be finite and scaled to [0, 1]")
     fg = img < 0.48
     total = fg.size
     fg_fraction = float(fg.mean())

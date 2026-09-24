@@ -7,6 +7,7 @@ retrain on their own annotated brightfield fields.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 
@@ -79,6 +80,7 @@ class SoftmaxQC:
         return model
 
     def save(self, path: str) -> None:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2)
 
