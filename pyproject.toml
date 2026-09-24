@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "colonyqc"
-version = "0.2.0"
-description = "Brightfield colony morphology QC with a synthetic bake-off."
+version = "0.3.0"
+description = "Colony image features, synthetic morphology demos and a NIST iPSC data importer."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

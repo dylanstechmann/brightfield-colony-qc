@@ -4,6 +4,15 @@ A retrainable morphology triage for cheap transmitted-light images of colonies a
 
 The model that ships here is trained on a **synthetic** brightfield generator, so the repository runs without licensed cell images. On that generator a multinomial logistic regression is essentially perfect (holdout accuracy 1.0 versus a ~0.2 majority baseline, seed 0). Two passes of a 3×3 box blur drop it to about 0.77. That gap is the point: clean synthetic accuracy is a software ceiling, not an iPSC result.
 
+Version 0.3 adds a **real iPSC phase-image importer** for the public NIST
+mds2-2960 dataset. A companion
+[whole-well regression benchmark](https://github.com/dylanstechmann/regen-benchmark-kit/blob/main/examples/nist_ipsc/results/STUDY_REPORT.md)
+uses these nine features to predict nuclear mask area on 192 tiles from three
+wells. The fixed Ridge baseline achieved 2.14 percentage-point MAE versus
+9.72 for a training-fold mean. Only three wells were evaluated; this does not
+validate the synthetic morphology classes. See the [data workflow](docs/NIST_IPSC.md)
+for sources, hashes, annotation meaning and limitations.
+
 ## Non-goals
 
 This repository does **not**:
@@ -48,7 +57,9 @@ The last label is a filament-like texture class. It is not a microbe ID.
 
 ## License
 
-MIT. Cite the staining papers and the assay vendor, not this model, if you write about a real culture.
+Original code: MIT. The NIST source data and derived tables retain their
+[source terms and attribution](https://github.com/dylanstechmann/regen-benchmark-kit/blob/main/examples/nist_ipsc/SOURCE_NOTICE.md).
+Cite the dataset and paper separately from this software.
 
 ## Annotated-image import (v0.2)
 
