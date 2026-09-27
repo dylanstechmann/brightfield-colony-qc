@@ -81,6 +81,9 @@ colonyqc export-features artifacts/manifest-demo/manifest.csv --out artifacts/fe
 
 The helper generates only **synthetic** fields. Export writes a numerical
 feature CSV and a provenance sidecar with image/manifest/output SHA-256 hashes.
+The manifest and each image are decoded from the same bytes used for their
+hashes, so a source file changing during export cannot silently mismatch the
+features and recorded source hash.
 It preserves grouping metadata for
 [regen-benchmark-kit](https://github.com/dylanstechmann/regen-benchmark-kit):
 

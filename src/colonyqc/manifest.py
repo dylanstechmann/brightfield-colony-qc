@@ -4,24 +4,29 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
 from pathlib import Path
 
 import numpy as np
 
 from colonyqc.features import FEATURE_NAMES, featurize
-from colonyqc.synthetic import LABELS, read_pgm
+from colonyqc.synthetic import LABELS, read_pgm_bytes
 
 
 def read_image(path):
     path = Path(path)
-    if path.suffix.lower() == ".pgm":
-        return read_pgm(str(path))
+    return _decode_image(path.read_bytes(), path.suffix)
+
+
+def _decode_image(data, suffix):
+    if suffix.lower() == ".pgm":
+        return read_pgm_bytes(data)
     try:
         from PIL import Image
     except ImportError as exc:
         raise ValueError("PNG/TIFF support requires pip install '.[images]'") from exc
-    with Image.open(path) as image:
+    with Image.open(io.BytesIO(data)) as image:
         if image.mode != "L" or getattr(image, "n_frames", 1) != 1:
             raise ValueError("use a single-frame 8-bit grayscale image; document any upstream conversion")
         return np.asarray(image, dtype=np.float64) / 255.0
@@ -32,7 +37,8 @@ def export_features(manifest, output):
     provenance = output.with_suffix(output.suffix + ".provenance.json")
     if output.exists() or provenance.exists():
         raise ValueError("output or provenance already exists; use a new output path")
-    with manifest.open(newline="", encoding="utf-8-sig") as handle:
+    manifest_bytes = manifest.read_bytes()
+    with io.StringIO(manifest_bytes.decode("utf-8-sig"), newline="") as handle:
         reader = csv.DictReader(handle)
         header = reader.fieldnames or []
         required = {"sample_id", "image_path", "label", "group_id"}
@@ -54,12 +60,13 @@ def export_features(manifest, output):
         if row["label"] not in LABELS:
             raise ValueError(f"row {line}: unsupported label {row['label']}")
         path = manifest.parent / row["image_path"]
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        image_bytes = path.read_bytes()
+        digest = hashlib.sha256(image_bytes).hexdigest()
         if digest in seen_hashes:
             raise ValueError(f"row {line}: duplicate image bytes; reconcile duplicate records first")
         seen_ids.add(row["sample_id"])
         seen_hashes.add(digest)
-        features = featurize(read_image(path))
+        features = featurize(_decode_image(image_bytes, path.suffix))
         records.append({"sample_id": row["sample_id"], "label": row["label"],
                         "group_id": row["group_id"], **{c: row[c] for c in optional},
                         "image_sha256": digest,
@@ -70,7 +77,7 @@ def export_features(manifest, output):
         writer = csv.DictWriter(handle, fieldnames=list(records[0]))
         writer.writeheader()
         writer.writerows(records)
-    payload = {"schema_version": 1, "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+    payload = {"schema_version": 1, "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
                "features_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
                "images": images, "feature_names": list(FEATURE_NAMES),
                "note": "User annotations, not model-confirmed cell states. Group related fields before evaluation."}

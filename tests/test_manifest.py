@@ -1,12 +1,14 @@
 import csv
+import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
-from colonyqc.features import featurize
+from colonyqc.features import FEATURE_NAMES, featurize
 from colonyqc.manifest import export_features, read_image
 from colonyqc.model import SoftmaxQC
 from colonyqc.synthetic import render, write_pgm
@@ -33,6 +35,35 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(provenance["images"][0]["image_sha256"], rows[0]["image_sha256"])
         with self.assertRaises(ValueError):
             export_features(self.manifest, output)
+
+    def test_provenance_hashes_match_the_decoded_input_snapshots(self):
+        image = self.root / "field.pgm"
+        manifest_bytes = self.manifest.read_bytes()
+        image_bytes = image.read_bytes()
+        expected_features = featurize(read_image(image))
+        read_bytes = Path.read_bytes
+        reads = {self.manifest: 0, image: 0}
+
+        def change_after_read(path):
+            data = read_bytes(path)
+            if path == self.manifest:
+                reads[path] += 1
+                self.manifest.write_text("invalid manifest", encoding="utf-8")
+            elif path == image:
+                reads[path] += 1
+                write_pgm(str(image), np.ones((96, 96)))
+            return data
+
+        output = self.root / "features.csv"
+        with patch.object(Path, "read_bytes", change_after_read):
+            export_features(self.manifest, output)
+        self.assertEqual(reads, {self.manifest: 1, image: 1})
+        provenance = json.loads(output.with_suffix(".csv.provenance.json").read_text(encoding="utf-8"))
+        self.assertEqual(provenance["manifest_sha256"], hashlib.sha256(manifest_bytes).hexdigest())
+        self.assertEqual(provenance["images"][0]["image_sha256"], hashlib.sha256(image_bytes).hexdigest())
+        with output.open(newline="", encoding="utf-8") as handle:
+            row = next(csv.DictReader(handle))
+        np.testing.assert_allclose([float(row[f"f_{name}"]) for name in FEATURE_NAMES], expected_features)
 
     def test_duplicate_image_under_new_id_is_rejected(self):
         with self.manifest.open("a") as handle:
