@@ -6,6 +6,8 @@ licensed cell images. It is not a claim about real iPSC appearance.
 
 from __future__ import annotations
 
+import io
+
 import numpy as np
 
 LABELS = (
@@ -121,21 +123,29 @@ def write_pgm(path: str, img: np.ndarray) -> None:
 
 def read_pgm(path: str) -> np.ndarray:
     with open(path, "rb") as f:
-        magic = f.readline().strip()
-        if magic != b"P5":
-            raise ValueError("only binary PGM (P5) is supported")
-        tokens = []
-        while len(tokens) < 3:
-            line = f.readline()
-            if not line:
-                raise ValueError("truncated PGM header")
-            if line.startswith(b"#"):
-                continue
-            tokens.extend(line.split())
-        w, h, maxv = int(tokens[0]), int(tokens[1]), int(tokens[2])
-        if maxv != 255:
-            raise ValueError("expected maxval 255")
-        raw = f.read(w * h)
-        if len(raw) != w * h:
-            raise ValueError("truncated PGM raster")
+        return _read_pgm_stream(f)
+
+
+def read_pgm_bytes(data: bytes) -> np.ndarray:
+    return _read_pgm_stream(io.BytesIO(data))
+
+
+def _read_pgm_stream(f) -> np.ndarray:
+    magic = f.readline().strip()
+    if magic != b"P5":
+        raise ValueError("only binary PGM (P5) is supported")
+    tokens = []
+    while len(tokens) < 3:
+        line = f.readline()
+        if not line:
+            raise ValueError("truncated PGM header")
+        if line.startswith(b"#"):
+            continue
+        tokens.extend(line.split())
+    w, h, maxv = int(tokens[0]), int(tokens[1]), int(tokens[2])
+    if maxv != 255:
+        raise ValueError("expected maxval 255")
+    raw = f.read(w * h)
+    if len(raw) != w * h:
+        raise ValueError("truncated PGM raster")
     return np.frombuffer(raw, dtype=np.uint8).reshape(h, w).astype(np.float64) / 255.0
