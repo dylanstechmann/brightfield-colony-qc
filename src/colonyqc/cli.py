@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import sys
 
 import numpy as np
@@ -11,7 +12,7 @@ import numpy as np
 from colonyqc.features import featurize
 from colonyqc.manifest import export_features, read_image
 from colonyqc.model import SoftmaxQC, accuracy, majority_accuracy
-from colonyqc.report import build_report
+from colonyqc.report import build_report, generate_html_report
 from colonyqc.synthetic import box_blur, dataset, read_pgm
 
 
@@ -45,14 +46,20 @@ def demo(seed: int) -> dict:
     }
 
 
-def score_path(model_path: str, image_path: str) -> dict:
+def score_path(model_path: str, image_path: str, html_path: str | None = None) -> dict:
     model = SoftmaxQC.load(model_path)
     img = read_image(image_path)
     feat = featurize(img)
     proba = model.predict_proba(feat.reshape(1, -1))[0]
     mapping = {name: float(p) for name, p in zip(model.classes, proba)}
     label = model.classes[int(np.argmax(proba))]
-    return build_report(label, mapping, feat.tolist())
+    report = build_report(label, mapping, feat.tolist())
+    if html_path:
+        html_out = Path(html_path)
+        html_out.parent.mkdir(parents=True, exist_ok=True)
+        html_content = generate_html_report(report, image_array=img, image_name=str(image_path))
+        html_out.write_text(html_content, encoding="utf-8")
+    return report
 
 
 def main(argv=None) -> int:
@@ -60,9 +67,10 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("demo", help="train on synthetic fields and print the bake-off")
     d.add_argument("--seed", type=int, default=0)
-    p = sub.add_parser("predict", help="score one binary PGM image")
+    p = sub.add_parser("predict", help="score one brightfield image (PGM, PNG, TIFF)")
     p.add_argument("--model", required=True)
     p.add_argument("--image", required=True)
+    p.add_argument("--html", default=None, help="save visual HTML triage report to path")
     t = sub.add_parser("train", help="fit on the synthetic generator and save weights")
     t.add_argument("--out", required=True)
     t.add_argument("--seed", type=int, default=0)
@@ -87,7 +95,7 @@ def main(argv=None) -> int:
         x = np.vstack([featurize(im) for im in images])
         SoftmaxQC().fit(x, labels, seed=args.seed).save(args.out)
         return 0
-    json.dump(score_path(args.model, args.image), sys.stdout, indent=2)
+    json.dump(score_path(args.model, args.image, html_path=args.html), sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
 

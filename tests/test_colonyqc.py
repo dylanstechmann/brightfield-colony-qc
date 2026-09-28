@@ -58,6 +58,58 @@ class ReportTests(unittest.TestCase):
         self.assertIn("contamination_triage", report["flags"])
         self.assertIn("mycoplasma", report["next_human_step"].lower())
 
+    def test_html_report_generation(self):
+        from colonyqc.report import generate_html_report
+        proba = {name: 0.25 for name in LABELS}
+        proba["undifferentiated"] = 0.7
+        features = [0.12] * len(FEATURE_NAMES)
+        report = build_report("undifferentiated", proba, features)
+        img = np.ones((32, 32), dtype=np.float64) * 0.5
+        html = generate_html_report(report, image_array=img, image_name="test_colony.png")
+        self.assertIn("<!DOCTYPE html>", html)
+        self.assertIn("data:image/png;base64,", html)
+        self.assertIn("undifferentiated", html)
+        self.assertIn("fg_fraction", html)
+        self.assertIn("Regulatory & Research Disclaimer", html)
+
+    def test_predict_png_and_tiff_with_html(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("PIL required for PNG/TIFF tests")
+        from colonyqc.cli import main, score_path
+        images, labels = dataset(n_per_class=10, seed=42)
+        x = np.vstack([featurize(im) for im in images])
+        model = SoftmaxQC().fit(x, labels, epochs=50, seed=42)
+        with tempfile.TemporaryDirectory() as tmp:
+            m_path = os.path.join(tmp, "model.json")
+            model.save(m_path)
+
+            # Test PNG
+            png_path = os.path.join(tmp, "colony.png")
+            html_png = os.path.join(tmp, "report_png.html")
+            Image.fromarray((images[0] * 255).astype(np.uint8)).save(png_path)
+            res_png = score_path(m_path, png_path, html_path=html_png)
+            self.assertIn("call", res_png)
+            self.assertTrue(os.path.exists(html_png))
+            self.assertGreater(os.path.getsize(html_png), 500)
+
+            # Test TIFF
+            tif_path = os.path.join(tmp, "colony.tif")
+            html_tif = os.path.join(tmp, "report_tif.html")
+            Image.fromarray((images[0] * 255).astype(np.uint8)).save(tif_path)
+            res_tif = score_path(m_path, tif_path, html_path=html_tif)
+            self.assertIn("call", res_tif)
+            self.assertTrue(os.path.exists(html_tif))
+            self.assertGreater(os.path.getsize(html_tif), 500)
+
+            # Test CLI predict with --html
+            cli_html = os.path.join(tmp, "cli_report.html")
+            code = main(["predict", "--model", m_path, "--image", png_path, "--html", cli_html])
+            self.assertEqual(code, 0)
+            self.assertTrue(os.path.exists(cli_html))
+
 
 if __name__ == "__main__":
     unittest.main()
+

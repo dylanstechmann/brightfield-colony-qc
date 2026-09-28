@@ -44,8 +44,18 @@ from colonyqc.synthetic import render, write_pgm
 import numpy as np
 write_pgm("artifacts/field.pgm", render(np.random.default_rng(0), "undifferentiated"))
 PY
-PYTHONPATH=src python3 -m colonyqc.cli predict --model artifacts/model.json --image artifacts/field.pgm
+PYTHONPATH=src python3 -m colonyqc.cli predict --model artifacts/model.json --image artifacts/field.pgm --html artifacts/triage_report.html
 ```
+
+### Visual HTML Triage Report
+
+Passing `--html <path>` to `predict` generates a self-contained, standalone visual HTML report containing:
+- **Triage Call & Status Banner:** Color-coded status badge (`undifferentiated`, `differentiating`, `debris`, `contamination_suspect`).
+- **Input Image Preview:** Embedded base64 preview of the scanned field with resolution details.
+- **Probabilities Breakdown:** Visual confidence bars for each morphology class.
+- **Extracted Feature Table:** Complete numerical dump and interpretations for all 9 morphology metrics (`fg_fraction`, `largest_circularity`, `thin_fraction`, etc.).
+- **Actionable Next Lab Step & Active Flags:** Direct guidance for quarantine, phase-contrast review, or validation.
+- **Embedded Research & Regulatory Disclaimer:** Preserved in the report header and footer.
 
 Needs Python 3.10+ and numpy. No GPU.
 

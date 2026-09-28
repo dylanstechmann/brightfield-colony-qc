@@ -27,8 +27,10 @@ def _decode_image(data, suffix):
     except ImportError as exc:
         raise ValueError("PNG/TIFF support requires pip install '.[images]'") from exc
     with Image.open(io.BytesIO(data)) as image:
-        if image.mode != "L" or getattr(image, "n_frames", 1) != 1:
-            raise ValueError("use a single-frame 8-bit grayscale image; document any upstream conversion")
+        if getattr(image, "n_frames", 1) != 1:
+            raise ValueError("use a single-frame image; multi-frame images are not supported")
+        if image.mode != "L":
+            image = image.convert("L")
         return np.asarray(image, dtype=np.float64) / 255.0
 
 
