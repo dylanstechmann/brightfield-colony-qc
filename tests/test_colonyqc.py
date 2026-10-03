@@ -4,11 +4,11 @@ import unittest
 
 import numpy as np
 
-from colonyqc.cli import demo
+from colonyqc.cli import demo, score_path, training_domain
 from colonyqc.features import FEATURE_NAMES, featurize
 from colonyqc.model import SoftmaxQC, accuracy
 from colonyqc.report import DISCLAIMER, build_report
-from colonyqc.synthetic import LABELS, dataset, read_pgm, render, write_pgm
+from colonyqc.synthetic import LABELS, box_blur, dataset, read_pgm, render, write_pgm
 
 
 class FeatureTests(unittest.TestCase):
@@ -17,6 +17,11 @@ class FeatureTests(unittest.TestCase):
         feat = featurize(img)
         self.assertEqual(feat.shape, (len(FEATURE_NAMES),))
         self.assertTrue(np.isfinite(feat).all())
+
+    def test_blank_black_white_and_near_uniform_fields_are_rejected(self):
+        for image in [np.zeros((32, 32)), np.ones((32, 32)), np.full((32, 32), 0.5)]:
+            with self.assertRaisesRegex(ValueError, "blank or near-uniform"):
+                featurize(image)
 
     def test_filaments_are_thinner_than_colonies(self):
         rng = np.random.default_rng(1)
@@ -42,6 +47,7 @@ class ModelTests(unittest.TestCase):
             pgm = os.path.join(tmp, "f.pgm")
             model.save(path)
             loaded = SoftmaxQC.load(path)
+            self.assertEqual(loaded.training_provenance["source"], "unknown_not_recorded")
             write_pgm(pgm, images[0])
             restored = read_pgm(pgm)
             self.assertEqual(restored.shape, images[0].shape)
@@ -71,6 +77,95 @@ class ReportTests(unittest.TestCase):
         self.assertIn("undifferentiated", html)
         self.assertIn("fg_fraction", html)
         self.assertIn("Regulatory & Research Disclaimer", html)
+        self.assertIn("Training data provenance is not confirmed", html)
+
+    def test_training_provenance_roundtrips_and_is_in_prediction_report(self):
+        images, labels = dataset(n_per_class=12, seed=3)
+        x = np.vstack([featurize(im) for im in images])
+        provenance = {
+            "source": "synthetic_generator",
+            "generator_seed": 3,
+            "training_matrix_sha256": "a" * 64,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            model_path = os.path.join(tmp, "model.json")
+            image_path = os.path.join(tmp, "field.pgm")
+            provenance["training_source_sha256"] = "b" * 64
+            model = SoftmaxQC().fit(
+                x, labels, epochs=100, seed=3, provenance=provenance,
+                training_domain=training_domain(images),
+            )
+            model.save(model_path)
+            write_pgm(image_path, images[0])
+            report = score_path(model_path, image_path)
+        self.assertEqual(report["training_provenance"], provenance)
+        self.assertEqual(len(report["model_sha256"]), 64)
+        self.assertEqual(report["call"], "unscorable")
+        self.assertEqual(report["prediction_status"], "unscorable")
+        self.assertIn("explicit_synthetic_demo", report["rejection_reason"])
+        self.assertEqual(len(report["input_image_sha256"]), 64)
+        self.assertEqual(report["training_source_sha256"], "b" * 64)
+        self.assertEqual(report["model_schema_version"], 2)
+        self.assertEqual(report["feature_schema_version"], 1)
+        self.assertEqual(report["training_data_status"], "synthetic")
+        self.assertTrue(report["synthetic_training"])
+        html = __import__("colonyqc.report", fromlist=["generate_html_report"]).generate_html_report(report)
+        self.assertIn("Model schema version", html)
+        self.assertIn("Feature schema version", html)
+        self.assertIn("training_source_sha256", html)
+
+        # The explicit mode demonstrates software behavior but never emits a culture call.
+        with tempfile.TemporaryDirectory() as tmp:
+            model_path, image_path = os.path.join(tmp, "model.json"), os.path.join(tmp, "field.pgm")
+            model = SoftmaxQC().fit(
+                x, labels, epochs=100, seed=3, provenance=provenance,
+                training_domain=training_domain(images),
+            )
+            model.save(model_path)
+            write_pgm(image_path, images[0])
+            report = score_path(model_path, image_path, input_domain="synthetic-demo")
+        self.assertEqual(report["call"], "synthetic_demo_only")
+        self.assertIn(report["demonstration_class"], LABELS)
+        self.assertEqual(report["flags"], [])
+        self.assertIn("Do not use this result", report["next_human_step"])
+        self.assertNotIn("quarantine", report["next_human_step"].lower())
+        self.assertNotIn("mycoplasma", report["next_human_step"].lower())
+
+    def test_synthetic_model_rejects_blank_saturated_blurred_shifted_and_wrong_scale_fields(self):
+        images, labels = dataset(n_per_class=20, seed=11)
+        x = np.vstack([featurize(im) for im in images])
+        provenance = {
+            "source": "synthetic_generator",
+            "training_source_sha256": "c" * 64,
+        }
+        model = SoftmaxQC().fit(
+            x, labels, epochs=100, seed=11, provenance=provenance,
+            training_domain=training_domain(images),
+        )
+        cases = {
+            "blank": np.full_like(images[0], 0.5),
+            "saturated": np.ones_like(images[0]),
+            "blurred": box_blur(box_blur(images[0])),
+            "intensity_shift": np.clip(images[0] + 0.15, 0, 1),
+            "contrast_scale": np.clip((images[0] - 0.5) * 0.5 + 0.5, 0, 1),
+            "wrong_scale": images[0][::2, ::2],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            model_path = os.path.join(tmp, "model.json")
+            model.save(model_path)
+            statuses = {}
+            reasons = {}
+            for name, image in cases.items():
+                image_path = os.path.join(tmp, f"{name}.pgm")
+                write_pgm(image_path, image)
+                report = score_path(model_path, image_path, input_domain="synthetic-demo")
+                statuses[name] = report["prediction_status"]
+                reasons[name] = report.get("rejection_reason", "")
+        self.assertEqual(statuses["blank"], "unscorable")
+        self.assertEqual(statuses["saturated"], "unscorable")
+        for name in ["blurred", "intensity_shift", "contrast_scale", "wrong_scale"]:
+            self.assertEqual(statuses[name], "out_of_domain", (name, reasons[name]))
+        self.assertTrue(all("demonstration_class" not in reasons[name] for name in reasons))
 
     def test_predict_png_and_tiff_with_html(self):
         try:

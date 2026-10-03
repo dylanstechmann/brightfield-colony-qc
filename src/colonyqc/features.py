@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import numpy as np
 
+FEATURE_SCHEMA_VERSION = 1
+
 FEATURE_NAMES = (
     "fg_fraction",
     "n_components",
@@ -27,6 +29,8 @@ def featurize(img: np.ndarray) -> np.ndarray:
         raise ValueError("expected a nonempty single grayscale image")
     if not np.isfinite(img).all() or np.any(img < 0) or np.any(img > 1):
         raise ValueError("image values must be finite and scaled to [0, 1]")
+    if float(img.std()) < 0.005:
+        raise ValueError("blank or near-uniform image has insufficient morphology signal")
     fg = img < 0.48
     total = fg.size
     fg_fraction = float(fg.mean())

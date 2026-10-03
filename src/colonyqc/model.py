@@ -11,7 +11,10 @@ from pathlib import Path
 
 import numpy as np
 
+from colonyqc.features import FEATURE_SCHEMA_VERSION
 from colonyqc.synthetic import LABELS
+
+MODEL_SCHEMA_VERSION = 2
 
 
 class SoftmaxQC:
@@ -21,8 +24,20 @@ class SoftmaxQC:
         self.std = None
         self.weights = None  # (d, k)
         self.bias = None
+        self.training_provenance = {"source": "unknown_not_recorded"}
+        self.training_domain = {"status": "unknown_not_recorded"}
+        self.model_schema_version = MODEL_SCHEMA_VERSION
+        self.feature_schema_version = FEATURE_SCHEMA_VERSION
 
-    def fit(self, x: np.ndarray, y: list[str], lr: float = 0.35, epochs: int = 500, l2: float = 1e-3, seed: int = 0):
+    def fit(self, x: np.ndarray, y: list[str], lr: float = 0.35, epochs: int = 500, l2: float = 1e-3, seed: int = 0, provenance: dict | None = None, training_domain: dict | None = None):
+        if x.ndim != 2 or len(x) != len(y) or not len(y):
+            raise ValueError("training features and labels must be nonempty and aligned")
+        if not np.isfinite(x).all():
+            raise ValueError("training features must be finite")
+        if any(label not in self.classes for label in y):
+            raise ValueError("training labels must use the supported class names")
+        self.training_provenance = dict(provenance or {"source": "unknown_not_recorded"})
+        self.training_domain = dict(training_domain or {"status": "unknown_not_recorded"})
         class_index = {c: i for i, c in enumerate(self.classes)}
         y_idx = np.array([class_index[label] for label in y], dtype=np.int64)
         self.mean = x.mean(axis=0)
@@ -67,7 +82,21 @@ class SoftmaxQC:
             "std": self.std.tolist(),
             "weights": self.weights.tolist(),
             "bias": self.bias.tolist(),
+            "training_provenance": self.training_provenance,
+            "training_domain": self.training_domain,
+            "model_schema_version": self.model_schema_version,
+            "feature_schema_version": self.feature_schema_version,
+            "training_data_status": self.training_data_status,
         }
+
+    @property
+    def training_data_status(self) -> str:
+        source = self.training_provenance.get("source")
+        if source == "synthetic_generator":
+            return "synthetic"
+        if source == "unknown_not_recorded":
+            return "unknown"
+        return "non_synthetic_unverified"
 
     @classmethod
     def from_dict(cls, payload: dict) -> "SoftmaxQC":
@@ -77,6 +106,12 @@ class SoftmaxQC:
         model.std = np.array(payload["std"], dtype=np.float64)
         model.weights = np.array(payload["weights"], dtype=np.float64)
         model.bias = np.array(payload["bias"], dtype=np.float64)
+        model.training_provenance = dict(
+            payload.get("training_provenance", {"source": "unknown_not_recorded"})
+        )
+        model.training_domain = dict(payload.get("training_domain", {"status": "unknown_not_recorded"}))
+        model.model_schema_version = int(payload.get("model_schema_version", 1))
+        model.feature_schema_version = int(payload.get("feature_schema_version", 0))
         return model
 
     def save(self, path: str) -> None:

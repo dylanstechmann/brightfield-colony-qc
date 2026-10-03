@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from colonyqc.features import FEATURE_NAMES
 
 DISCLAIMER = (
@@ -13,32 +15,57 @@ DISCLAIMER = (
 )
 
 
-def build_report(label: str, proba: dict[str, float], features: list[float]) -> dict:
+def build_report(
+    label: str,
+    proba: dict[str, float],
+    features: list[float],
+    training_provenance: dict | None = None,
+    synthetic_training: bool | None = None,
+    demonstration_class: str | None = None,
+) -> dict:
     flags = []
-    if proba.get("contamination_suspect", 0.0) >= 0.35:
-        flags.append("contamination_triage")
-    if proba.get("debris", 0.0) >= 0.5:
-        flags.append("mostly_debris")
-    if label == "differentiating":
-        flags.append("morphology_not_undifferentiated")
+    provenance = dict(training_provenance or {"source": "unknown_not_recorded"})
+    if synthetic_training is None:
+        synthetic_training = provenance.get("source") == "synthetic_generator"
+    if synthetic_training:
+        provenance_notice = (
+            "Synthetic training data: class probabilities are a software demonstration only, "
+            "not evidence about a biological culture and not for laboratory decisions."
+        )
+        next_step = "Synthetic demonstration only. Do not use this result to assess a culture or guide laboratory actions."
+    else:
+        provenance_notice = "Training data provenance is not confirmed by this report."
+        if label == "contamination_suspect" and proba.get(label, 0.0) >= 0.35:
+            flags.append("contamination_triage")
+        if proba.get("debris", 0.0) >= 0.5:
+            flags.append("mostly_debris")
+        if label == "differentiating":
+            flags.append("morphology_not_undifferentiated")
+        next_step = _next(flags, label)
+    if label in {"unscorable", "out_of_domain"}:
+        next_step = "Review focus, illumination, scale, and acquisition settings; do not infer a cell state from this field."
     return {
         "disclaimer": DISCLAIMER,
+        "training_provenance": provenance,
+        "provenance_notice": provenance_notice,
         "call": label,
+        "demonstration_class": demonstration_class,
+        "synthetic_training": bool(synthetic_training),
         "probabilities": {k: round(float(v), 4) for k, v in proba.items()},
         "features": {name: round(float(val), 5) for name, val in zip(FEATURE_NAMES, features)},
         "flags": flags,
-        "next_human_step": _next(flags),
+        "next_human_step": next_step,
     }
 
 
-def _next(flags: list[str]) -> str:
+def _next(flags: list[str], label: str) -> str:
     if "contamination_triage" in flags:
-        return "Quarantine the culture. Inspect under phase contrast. Run a validated mycoplasma assay before any further use."
+        return "Inspect the field manually and confirm suspected contamination with a validated assay, such as a mycoplasma assay, before changing culture status."
     if "mostly_debris" in flags:
-        return "Field looks empty or full of debris. Check focus, seeding, and whether the vessel was fed."
+        return "Review the field manually and check focus and seeding; do not change culture status from this classifier alone."
     if "morphology_not_undifferentiated" in flags:
-        return "Morphology is not a compact undifferentiated colony. Confirm the intended fate with a marker assay before expanding."
-    return "Morphology is consistent with a compact colony on this model. Still confirm identity and sterility on the lab's schedule."
+        return "Review morphology manually and confirm the intended fate with a validated marker assay before making culture decisions."
+    return "Research triage only. Confirm identity, sterility, and cell state with the lab's validated methods before making culture decisions."
 
 
 def _image_to_base64_png(img) -> str | None:
@@ -70,9 +97,27 @@ def generate_html_report(
     flags = report.get("flags", [])
     next_step = report.get("next_human_step", "")
     disclaimer = report.get("disclaimer", DISCLAIMER)
+    provenance = report.get("training_provenance", {"source": "unknown_not_recorded"})
+    provenance_notice = report.get("provenance_notice", "Training data provenance is not confirmed by this report.")
+    provenance_html = html.escape(str(provenance))
+    training_domain_html = html.escape(json.dumps(report.get("training_domain", {"status": "unknown"}), sort_keys=True))
+    model_meta_html = "".join(
+        f"<div><strong>{html.escape(label)}:</strong> {html.escape(str(report.get(key, 'unknown')))}</div>"
+        for label, key in [
+            ("Training data status", "training_data_status"),
+            ("Model schema version", "model_schema_version"),
+            ("Feature schema version", "feature_schema_version"),
+            ("Input image SHA-256", "input_image_sha256"),
+            ("Model SHA-256", "model_sha256"),
+            ("Training source SHA-256", "training_source_sha256"),
+        ]
+    )
 
     # Status color schemes
     color_map = {
+        "unscorable": {"bg": "#312e81", "border": "#6366f1", "text": "#a5b4fc", "badge": "Unscorable: Review Acquisition"},
+        "out_of_domain": {"bg": "#78350f", "border": "#d97706", "text": "#fbbf24", "badge": "Out of Domain: Review Acquisition"},
+        "synthetic_demo_only": {"bg": "#1e293b", "border": "#38bdf8", "text": "#7dd3fc", "badge": "Synthetic Demonstration Only"},
         "undifferentiated": {"bg": "#064e3b", "border": "#059669", "text": "#34d399", "badge": "Nominal / Undifferentiated"},
         "differentiating": {"bg": "#78350f", "border": "#d97706", "text": "#fbbf24", "badge": "Warning: Differentiating"},
         "debris": {"bg": "#312e81", "border": "#6366f1", "text": "#a5b4fc", "badge": "Review: Mostly Debris"},
@@ -327,6 +372,16 @@ def generate_html_report(
             </table>
         </div>
 
+        <div class="disclaimer-banner">
+            <strong style="color:#e4e4e7;">Training data provenance:</strong> {html.escape(provenance_notice)}
+            <div style="margin-top:6px;font-family:monospace;font-size:11px;">{provenance_html}</div>
+            <div style="margin-top:8px;font-size:12px;">{model_meta_html}</div>
+            <div style="margin-top:6px;font-size:12px;"><strong>Training domain:</strong>
+                <span style="font-family:monospace;font-size:11px;">{training_domain_html}</span>
+            </div>
+            <div style="margin-top:6px;font-size:12px;"><strong>Prediction status:</strong> {html.escape(str(report.get('prediction_status', 'not_scored')))}</div>
+            <div style="margin-top:3px;font-size:12px;"><strong>Rejection reason:</strong> {html.escape(str(report.get('rejection_reason', 'none')))}</div>
+        </div>
         <div class="disclaimer-banner">
             <strong style="color:#e4e4e7;">Regulatory & Research Disclaimer:</strong> {html.escape(disclaimer)}
         </div>

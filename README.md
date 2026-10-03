@@ -17,7 +17,7 @@ for sources, hashes, annotation meaning and limitations.
 
 This repository does **not**:
 
-- Diagnose mycoplasma, fungus, or bacteria. A contamination flag means quarantine the culture and run a validated assay.
+- Diagnose mycoplasma, fungus, or bacteria. A morphology flag requires manual review and validated assays; it does not by itself justify quarantine or release.
 - Replace karyotype, STR identity, residual reprogramming factors, or a potency assay.
 - Score clinical release, or anything meant to go into a person.
 - Claim that a convolutional net would have been more honest. The features are area, circularity, halo, interior texture, and a thin-trace score, so a collaborator can argue with them.
@@ -36,7 +36,9 @@ PYTHONPATH=src python3 -m colonyqc.cli demo --seed 0
 PYTHONPATH=src python3 -m colonyqc.cli train --out artifacts/model.json
 ```
 
-`predict` reads a binary PGM (`P5`), or 8-bit grayscale PNG/TIFF with the optional images extra. The generator can write one:
+`predict` reads a binary PGM (`P5`), or 8-bit grayscale PNG/TIFF with the optional images extra. It defaults to `unscorable` for synthetic-trained models. The explicit `--input-domain synthetic-demo` option is only for generator fixtures: it can show synthetic probabilities but returns `synthetic_demo_only`, never a biological class call or lab action. Reports record the input/model hashes, model and feature schema versions, training status, and image-only training-domain summary; blank, saturated, blurred, intensity-shifted, contrast-shifted, or wrong-size fields are rejected. Microscope acquisition metadata and real annotated validation data are still absent.
+
+The generator can write one:
 
 ```bash
 PYTHONPATH=src python3 - << 'PY'
@@ -44,17 +46,17 @@ from colonyqc.synthetic import render, write_pgm
 import numpy as np
 write_pgm("artifacts/field.pgm", render(np.random.default_rng(0), "undifferentiated"))
 PY
-PYTHONPATH=src python3 -m colonyqc.cli predict --model artifacts/model.json --image artifacts/field.pgm --html artifacts/triage_report.html
+PYTHONPATH=src python3 -m colonyqc.cli predict --model artifacts/model.json --image artifacts/field.pgm --input-domain synthetic-demo --html artifacts/triage_report.html
 ```
 
 ### Visual HTML Triage Report
 
 Passing `--html <path>` to `predict` generates a self-contained, standalone visual HTML report containing:
-- **Triage Call & Status Banner:** Color-coded status badge (`undifferentiated`, `differentiating`, `debris`, `contamination_suspect`).
+- **Triage Call & Status Banner:** Shows `unscorable`, `out_of_domain`, or `synthetic_demo_only` for the shipped model.
 - **Input Image Preview:** Embedded base64 preview of the scanned field with resolution details.
 - **Probabilities Breakdown:** Visual confidence bars for each morphology class.
 - **Extracted Feature Table:** Complete numerical dump and interpretations for all 9 morphology metrics (`fg_fraction`, `largest_circularity`, `thin_fraction`, etc.).
-- **Actionable Next Lab Step & Active Flags:** Direct guidance for quarantine, phase-contrast review, or validation.
+- **Next Step:** Acquisition review for rejected fields; synthetic-only reports explicitly prohibit culture decisions.
 - **Embedded Research & Regulatory Disclaimer:** Preserved in the report header and footer.
 
 Needs Python 3.10+ and numpy. No GPU.

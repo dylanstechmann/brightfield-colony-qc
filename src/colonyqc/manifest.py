@@ -16,7 +16,12 @@ from colonyqc.synthetic import LABELS, read_pgm_bytes
 
 def read_image(path):
     path = Path(path)
-    return _decode_image(path.read_bytes(), path.suffix)
+    return decode_image_bytes(path.read_bytes(), path.suffix)
+
+
+def decode_image_bytes(data, suffix):
+    """Decode one immutable image-byte snapshot using its filename suffix."""
+    return _decode_image(data, suffix)
 
 
 def _decode_image(data, suffix):
@@ -79,7 +84,8 @@ def export_features(manifest, output):
         writer = csv.DictWriter(handle, fieldnames=list(records[0]))
         writer.writeheader()
         writer.writerows(records)
-    payload = {"schema_version": 1, "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+    payload = {"schema_version": 1, "feature_schema_version": 1,
+               "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
                "features_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
                "images": images, "feature_names": list(FEATURE_NAMES),
                "note": "User annotations, not model-confirmed cell states. Group related fields before evaluation."}
