@@ -175,7 +175,14 @@ def export_nist(cache, output, *, download=False, tile_size=512, tiles_per_well=
                 mask.load()
                 if mask.getextrema()[1] > 1:
                     raise ValueError("expected a binary 0/1 nuclear mask")
-                rows.extend(tile_rows(phase, mask, asset, coordinates, tile_size))
+                # Copy pixels out of Pillow's TIFF-backed objects before the
+                # temporary extraction directory is removed (notably on Windows).
+                phase_copy, mask_copy = phase.copy(), mask.copy()
+            try:
+                rows.extend(tile_rows(phase_copy, mask_copy, asset, coordinates, tile_size))
+            finally:
+                phase_copy.close()
+                mask_copy.close()
         sources.append({**asset, "url": asset_url(asset), "members": members,
                         "selected_xy": coordinates})
     if len({row["image_sha256"] for row in rows}) != len(rows):

@@ -35,7 +35,10 @@ def _decode_image(data, suffix):
         if getattr(image, "n_frames", 1) != 1:
             raise ValueError("use a single-frame image; multi-frame images are not supported")
         if image.mode != "L":
-            image = image.convert("L")
+            raise ValueError(
+                f"expected an 8-bit grayscale image (mode L), got {image.mode}; "
+                "convert it explicitly and record that preprocessing in the manifest"
+            )
         return np.asarray(image, dtype=np.float64) / 255.0
 
 
