@@ -115,7 +115,12 @@ def score_path(
     image_bytes = Path(image_path).read_bytes()
     model_sha = hashlib.sha256(model_bytes).hexdigest()
     input_sha = hashlib.sha256(image_bytes).hexdigest()
-    model = SoftmaxQC.from_dict(json.loads(model_bytes))
+    model = SoftmaxQC()
+    model_error = None
+    try:
+        model = SoftmaxQC.from_dict(json.loads(model_bytes))
+    except (ValueError, TypeError, KeyError) as exc:
+        model_error = f"model_artifact_invalid:{exc}"
     common = {
         "model_sha256": model_sha,
         "input_image_sha256": input_sha,
@@ -151,6 +156,8 @@ def score_path(
     except (ValueError, OSError) as exc:
         return rejected("unscorable", f"image_decode_failed:{exc}")
 
+    if model_error is not None:
+        return rejected("unscorable", model_error)
     if model.model_schema_version != MODEL_SCHEMA_VERSION:
         return rejected("unscorable", "unsupported_model_schema_version")
     if model.feature_schema_version != FEATURE_SCHEMA_VERSION:
@@ -251,7 +258,11 @@ def main(argv=None) -> int:
             training_domain=training_domain(images),
         ).save(args.out)
         return 0
-    json.dump(score_path(args.model, args.image, html_path=args.html, input_domain=args.input_domain), sys.stdout, indent=2)
+    try:
+        report = score_path(args.model, args.image, html_path=args.html, input_domain=args.input_domain)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    json.dump(report, sys.stdout, indent=2, allow_nan=False)
     sys.stdout.write("\n")
     return 0
 

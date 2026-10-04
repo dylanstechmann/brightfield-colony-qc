@@ -38,6 +38,11 @@ PYTHONPATH=src python3 -m colonyqc.cli train --out artifacts/model.json
 
 `predict` reads a binary PGM (`P5`), or 8-bit grayscale PNG/TIFF with the optional images extra. It defaults to `unscorable` for synthetic-trained models. The explicit `--input-domain synthetic-demo` option is only for generator fixtures: it can show synthetic probabilities but returns `synthetic_demo_only`, never a biological class call or lab action. Reports record the input/model hashes, model and feature schema versions, training status, and image-only training-domain summary; blank, saturated, blurred, intensity-shifted, contrast-shifted, or wrong-size fields are rejected. Microscope acquisition metadata and real annotated validation data are still absent.
 
+Corrupt model arrays, invalid scales, duplicate class labels, and a recorded
+feature order that differs from the extractor are rejected before prediction.
+Malformed JSON artifacts produce an `unscorable` report retaining their source
+hash, so an invalid handoff remains inspectable.
+
 The generator can write one:
 
 ```bash

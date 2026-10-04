@@ -31,6 +31,62 @@ class FeatureTests(unittest.TestCase):
 
 
 class ModelTests(unittest.TestCase):
+    def test_corrupt_artifacts_fail_closed_with_hashed_reports(self):
+        import copy
+        import hashlib
+        import json
+        images, labels = dataset(n_per_class=2, seed=2)
+        x = np.vstack([featurize(image) for image in images])
+        model = SoftmaxQC().fit(x, labels, epochs=2)
+        valid = model.to_dict()
+        corrupt = []
+        for field, value in [("std", [0.] * len(FEATURE_NAMES)), ("weights", [[0.]]),
+                             ("bias", [float("nan")] * len(LABELS)),
+                             ("classes", [LABELS[0]] * len(LABELS)),
+                             ("model_schema_version", 2.5),
+                             ("training_provenance", {"source": "synthetic_generator",
+                                 "feature_names": list(reversed(FEATURE_NAMES))})]:
+            payload = copy.deepcopy(valid)
+            payload[field] = value
+            corrupt.append(json.dumps(payload))
+        corrupt.extend(["{", "[]", "{}"])
+        with tempfile.TemporaryDirectory() as tmp:
+            model_path = os.path.join(tmp, "model.json")
+            image_path = os.path.join(tmp, "field.pgm")
+            html_path = os.path.join(tmp, "report.html")
+            write_pgm(image_path, images[0])
+            for serialized in corrupt:
+                with self.subTest(model=serialized[:80]):
+                    with open(model_path, "w", encoding="utf-8") as handle:
+                        handle.write(serialized)
+                    report = score_path(model_path, image_path, html_path, input_domain="synthetic-demo")
+                    self.assertEqual(report["prediction_status"], "unscorable")
+                    self.assertEqual(report["probabilities"], {})
+                    self.assertTrue(report["rejection_reason"].startswith("model_artifact_invalid:"))
+                    self.assertEqual(report["model_sha256"], hashlib.sha256(serialized.encode()).hexdigest())
+                    json.dumps(report, allow_nan=False)
+                    with open(html_path, encoding="utf-8") as handle:
+                        html = handle.read()
+                    self.assertIn("anomaly status is unknown", html)
+                    self.assertNotIn("No morphological anomaly flags", html)
+
+    def test_training_controls_and_prediction_shapes_are_validated(self):
+        x = np.zeros((4, len(FEATURE_NAMES)))
+        for kwargs in [dict(epochs=0), dict(epochs=True), dict(lr=0), dict(lr=float("inf")), dict(l2=-1)]:
+            with self.assertRaises(ValueError):
+                SoftmaxQC().fit(x, list(LABELS), **kwargs)
+        model = SoftmaxQC().fit(x, list(LABELS), epochs=1)
+        for value in [np.zeros((1, 1)), np.full((1, len(FEATURE_NAMES)), np.nan), x[0]]:
+            with self.assertRaises(ValueError):
+                model.predict_proba(value)
+
+    def test_synthetic_html_does_not_reassure_about_biological_anomalies(self):
+        from colonyqc.report import generate_html_report
+        report = build_report("synthetic_demo_only", {}, [], synthetic_training=True)
+        html = generate_html_report(report)
+        self.assertIn("no biological anomaly assessment", html)
+        self.assertNotIn("No morphological anomaly flags", html)
+
     def test_beats_majority_and_blur_hurts(self):
         report = demo(0)
         self.assertGreater(report["holdout_accuracy"], report["majority_baseline"] + 0.5)
@@ -207,4 +263,3 @@ class ReportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -162,6 +162,10 @@ def generate_html_report(
     # Flags HTML
     if flags:
         flag_tags = "".join(f'<span class="flag-badge">{html.escape(f)}</span>' for f in flags)
+    elif call in {"unscorable", "out_of_domain"}:
+        flag_tags = '<span style="color:#94a3b8; font-size:13px;">Morphology was not scored; anomaly status is unknown.</span>'
+    elif call == "synthetic_demo_only" or report.get("synthetic_training"):
+        flag_tags = '<span style="color:#94a3b8; font-size:13px;">Synthetic demonstration; no biological anomaly assessment.</span>'
     else:
         flag_tags = '<span style="color:#10b981; font-size:13px; font-weight:500;">✓ No morphological anomaly flags</span>'
 
@@ -389,4 +393,3 @@ def generate_html_report(
 </body>
 </html>
 """
-

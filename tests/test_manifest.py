@@ -87,6 +87,6 @@ class ManifestTests(unittest.TestCase):
         np.testing.assert_allclose(read_image(self.root / "field.png"), [[0, 128 / 255, 1]])
 
     def test_model_save_creates_documented_artifact_directory(self):
-        model = SoftmaxQC().fit(np.array([[0.0], [1.0]]), ["debris", "undifferentiated"], epochs=2)
+        model = SoftmaxQC().fit(np.tile([[0.0], [1.0]], (1, len(FEATURE_NAMES))), ["debris", "undifferentiated"], epochs=2)
         model.save(str(self.root / "new" / "model.json"))
         self.assertTrue((self.root / "new" / "model.json").exists())
