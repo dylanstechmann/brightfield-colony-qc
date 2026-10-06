@@ -73,6 +73,29 @@ class ManifestTests(unittest.TestCase):
             export_features(self.manifest, output)
         self.assertFalse(output.exists())
 
+    def test_acquisition_metadata_is_preserved_and_measured_values_are_checked(self):
+        header = ["sample_id", "image_path", "label", "group_id", "microscope_id",
+                  "objective_magnification", "pixel_size_um", "exposure_ms", "illumination_mode"]
+        values = ["s1", "field.pgm", "undifferentiated", "plate1", "scope-1", "20", "0.65", "40", "phase"]
+        self.manifest.write_text(",".join(header) + "\n" + ",".join(values) + "\n", encoding="utf-8")
+        output = self.root / "metadata-features.csv"
+        export_features(self.manifest, output)
+        with output.open(newline="", encoding="utf-8") as handle:
+            row = next(csv.DictReader(handle))
+        self.assertEqual(row["microscope_id"], "scope-1")
+        self.assertEqual(row["objective_magnification"], "20")
+        self.assertEqual(row["pixel_size_um"], "0.65")
+        self.assertEqual(row["illumination_mode"], "phase")
+
+        for field, bad_value in (("objective_magnification", "0"), ("pixel_size_um", "nan"),
+                                 ("exposure_ms", "not-a-number")):
+            with self.subTest(field=field, bad_value=bad_value):
+                invalid = list(values)
+                invalid[header.index(field)] = bad_value
+                self.manifest.write_text(",".join(header) + "\n" + ",".join(invalid) + "\n", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, field):
+                    export_features(self.manifest, self.root / f"invalid-{field}.csv")
+
     def test_invalid_pixels_do_not_become_predictions(self):
         for image in [np.empty((0, 0)), np.array([[np.nan]]), np.array([[255]])]:
             with self.assertRaises(ValueError):

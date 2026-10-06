@@ -11,6 +11,12 @@ from pathlib import Path
 import numpy as np
 
 from colonyqc.features import FEATURE_NAMES, featurize
+
+ACQUISITION_METADATA = (
+    "imaging_lab", "microscope_id", "objective_magnification", "pixel_size_um",
+    "exposure_ms", "illumination_mode", "contrast_method", "annotation_protocol",
+    "annotation_version", "annotator_id", "source_uri", "license",
+)
 from colonyqc.synthetic import LABELS, read_pgm_bytes
 
 
@@ -57,7 +63,7 @@ def export_features(manifest, output):
         rows = list(reader)
     if not rows:
         raise ValueError("empty manifest")
-    optional = [c for c in ["donor_id", "batch_id", "plate_id"] if c in header]
+    optional = [c for c in ["donor_id", "batch_id", "plate_id", *ACQUISITION_METADATA] if c in header]
     records, images, seen_ids, seen_hashes = [], [], set(), set()
     for line, row in enumerate(rows, 2):
         if None in row or any(v is None for v in row.values()):
@@ -69,6 +75,14 @@ def export_features(manifest, output):
             raise ValueError(f"row {line}: duplicate sample_id")
         if row["label"] not in LABELS:
             raise ValueError(f"row {line}: unsupported label {row['label']}")
+        for column in ("objective_magnification", "pixel_size_um", "exposure_ms"):
+            if column in optional and row[column]:
+                try:
+                    value = float(row[column])
+                except ValueError as exc:
+                    raise ValueError(f"row {line}: {column} must be numeric when provided") from exc
+                if not np.isfinite(value) or value <= 0:
+                    raise ValueError(f"row {line}: {column} must be positive and finite")
         path = manifest.parent / row["image_path"]
         image_bytes = path.read_bytes()
         digest = hashlib.sha256(image_bytes).hexdigest()

@@ -86,9 +86,15 @@ no automatic per-image normalization or RGB conversion; record any conversion
 and image scale upstream. These fixed-threshold features are scale-sensitive.
 
 A manifest has `sample_id,image_path,label,group_id` columns, with optional
-`donor_id,batch_id,plate_id`. Paths are relative to the manifest. The labels
-are supplied annotations. Use the four labels listed above; no label is inferred
-by the importer. Exact duplicate image bytes and duplicate IDs are rejected.
+`donor_id,batch_id,plate_id` plus acquisition and annotation metadata:
+`imaging_lab,microscope_id,objective_magnification,pixel_size_um,exposure_ms`,
+`illumination_mode,contrast_method,annotation_protocol,annotation_version`,
+`annotator_id,source_uri,license`. Positive finite numbers are required when
+magnification, pixel size, or exposure is supplied. Values are carried into the
+feature CSV unchanged; pixel size is not used to normalize scale-sensitive
+features. Paths are relative to the manifest. Labels are supplied annotations;
+no label is inferred by the importer. Exact duplicate image bytes and duplicate
+IDs are rejected.
 
 ```bash
 python -m pip install -e .
@@ -112,5 +118,7 @@ regenbench run artifacts/features.csv --group-by donor_id,batch_id \
 
 Keep related fields, wells and donors together. Splitting image rows randomly
 can leak experimental identity. Exact hashes cannot detect near-duplicate crops.
-The importer makes real-data evaluation possible; it does not validate a real
-cell classifier. `train` still fits the synthetic model.
+The importer makes acquisition-aware, grouped real-data evaluation possible;
+it does not validate a real cell classifier. `train` still fits the synthetic
+model, and these class names still need a separately reviewed real annotation
+protocol before they can be interpreted on organoid or iPSC cultures.
