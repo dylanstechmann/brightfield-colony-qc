@@ -1,5 +1,8 @@
 # Brightfield colony QC
 
+This is a personal hobby and learning project, developed with substantial
+assistance from AI coding tools.
+
 A retrainable morphology triage for cheap transmitted-light images of colonies and organoids.
 
 The model that ships here is trained on a **synthetic** brightfield generator, so the repository runs without licensed cell images. On that generator a multinomial logistic regression is essentially perfect (holdout accuracy 1.0 versus a ~0.2 majority baseline, seed 0). Two passes of a 3×3 box blur drop it to about 0.77. That gap is the point: clean synthetic accuracy is a software ceiling, not an iPSC result.
@@ -24,7 +27,9 @@ This repository does **not**:
 
 ## Why it is shaped this way
 
-Imaging QC is one of the few regenerative-medicine jobs that is native to a CS workflow: fewer plates wasted, earlier flags, a model a core facility can retrain on its own annotated fields. The sterile room is still someone else's until it isn't.
+This project explores interpretable image features, synthetic classification,
+and grouped evaluation on public microscopy data. Real culture decisions
+require separately validated annotations and assays.
 
 Related work in this account: [anagen](https://github.com/dylanstechmann/anagen) (hair and tooth atlas) and [geroscience-compound-atlas](https://github.com/dylanstechmann/geroscience-compound-atlas) (compounds and evidence grades, not images).
 
