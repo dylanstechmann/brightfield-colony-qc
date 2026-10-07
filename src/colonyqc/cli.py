@@ -14,6 +14,13 @@ from colonyqc.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION, featurize
 from colonyqc.manifest import decode_image_bytes, export_features
 from colonyqc.model import MODEL_SCHEMA_VERSION, SoftmaxQC, accuracy, majority_accuracy
 from colonyqc.report import build_report, generate_html_report
+from colonyqc.selective import (
+    DEFAULT_ABSTAIN_THRESHOLD,
+    confidence,
+    risk_coverage_curve,
+    selective_calls,
+    selective_metrics,
+)
 from colonyqc.synthetic import box_blur, dataset, read_pgm
 
 
@@ -33,16 +40,28 @@ def demo(seed: int) -> dict:
     blur_x = np.vstack([featurize(im) for im in blurred])
     blur_acc = accuracy(y_test, model.predict(blur_x))
     base = majority_accuracy(y_test, [y[i] for i in train])
+    clean_proba = model.predict_proba(x[test])
+    blur_proba = model.predict_proba(blur_x)
+    blur_pred = model.predict(blur_x)
     return {
         "n_train": int(split),
         "n_test": int(len(test)),
         "majority_baseline": round(base, 4),
         "holdout_accuracy": round(clean, 4),
         "blurred_holdout_accuracy": round(blur_acc, 4),
+        "selective_prediction": {
+            "abstain_threshold": DEFAULT_ABSTAIN_THRESHOLD,
+            "clean": selective_metrics(y_test, pred, clean_proba),
+            "blurred": selective_metrics(y_test, blur_pred, blur_proba),
+            "clean_risk_coverage": risk_coverage_curve(y_test, pred, clean_proba),
+            "blurred_risk_coverage": risk_coverage_curve(y_test, blur_pred, blur_proba),
+        },
         "note": (
             "Clean accuracy is on images drawn from the same generator as training. "
             "It is a software ceiling, not an iPSC result. The blurred number is the "
-            "stress test. Retrain on real annotated fields before using any call."
+            "stress test. Retrain on real annotated fields before using any call. "
+            "Selective accuracy is measured only on answered fields, so read it with its "
+            "coverage; abstaining is a request for human review, not a culture verdict."
         ),
     }
 
@@ -109,6 +128,7 @@ def score_path(
     image_path: str,
     html_path: str | None = None,
     input_domain: str = "unverified",
+    abstain_threshold: float = DEFAULT_ABSTAIN_THRESHOLD,
 ) -> dict:
     # Hash and decode exactly the byte snapshots used for the report.
     model_bytes = Path(model_path).read_bytes()
@@ -180,16 +200,36 @@ def score_path(
         return rejected("unscorable", "model_outputs_nonfinite", img=img, features=feat)
     mapping = {name: float(p) for name, p in zip(model.classes, proba)}
     demo_label = model.classes[int(np.argmax(proba))]
+    top_confidence = float(confidence(proba.reshape(1, -1))[0])
+    abstained = top_confidence < abstain_threshold
     report = build_report(
         "synthetic_demo_only",
         mapping,
         feat.tolist(),
         training_provenance=model.training_provenance,
         synthetic_training=True,
-        demonstration_class=demo_label,
+        demonstration_class=None if abstained else demo_label,
     )
     report.update(common)
     report["prediction_status"] = "synthetic_demo_only"
+    report["selective_prediction"] = {
+        "abstain_threshold": float(abstain_threshold),
+        "top_label_confidence": top_confidence,
+        "abstained": abstained,
+        "withheld_demonstration_class": demo_label if abstained else None,
+        "note": (
+            "Top-label confidence is below the abstention threshold, so no demonstration class is "
+            "presented. An abstention asks for human review; it is not a statement about a culture."
+            if abstained else
+            "Top-label confidence is at or above the abstention threshold. On blurred fields this "
+            "confidence score does not rank correctness, so it is not a reliability estimate."
+        ),
+    }
+    if abstained:
+        report["flags"] = [*report.get("flags", []), "abstained_low_confidence"]
+        report["next_human_step"] = (
+            "Confidence is below the abstention threshold: review this field manually. "
+            "No class is reported, and this remains a synthetic demonstration.")
     if html_path:
         html_out = Path(html_path)
         html_out.parent.mkdir(parents=True, exist_ok=True)
@@ -210,6 +250,11 @@ def main(argv=None) -> int:
     p.add_argument(
         "--input-domain", choices=["unverified", "synthetic-demo"], default="unverified",
         help="synthetic-demo is for generator fixtures only; it does not permit culture decisions",
+    )
+    p.add_argument(
+        "--abstain-threshold", type=float, default=DEFAULT_ABSTAIN_THRESHOLD,
+        help=("withhold the demonstration class when top-label confidence falls below this value "
+              f"(default {DEFAULT_ABSTAIN_THRESHOLD}); abstaining asks for human review"),
     )
     t = sub.add_parser("train", help="fit on the synthetic generator and save weights")
     t.add_argument("--out", required=True)
@@ -259,7 +304,11 @@ def main(argv=None) -> int:
         ).save(args.out)
         return 0
     try:
-        report = score_path(args.model, args.image, html_path=args.html, input_domain=args.input_domain)
+        if not 0 <= args.abstain_threshold <= 1:
+            parser.error("--abstain-threshold must lie in [0, 1]")
+        report = score_path(args.model, args.image, html_path=args.html,
+                            input_domain=args.input_domain,
+                            abstain_threshold=args.abstain_threshold)
     except (ValueError, OSError) as exc:
         parser.error(str(exc))
     json.dump(report, sys.stdout, indent=2, allow_nan=False)

@@ -54,6 +54,36 @@ PY
 PYTHONPATH=src python3 -m colonyqc.cli predict --model artifacts/model.json --image artifacts/field.pgm --input-domain synthetic-demo --html artifacts/triage_report.html
 ```
 
+### Selective prediction and abstention
+
+A classifier forced to answer every field spends its errors on the fields it
+understands least. `predict` now withholds its demonstration class when
+top-label confidence falls below `--abstain-threshold` (default 0.60), flags the
+field `abstained_low_confidence`, and asks for human review. The withheld class
+and the confidence are still recorded so the decision is inspectable, and the
+probabilities are unchanged by abstaining. **An abstention is a request for
+review, not a statement that a culture is abnormal.**
+
+`demo` reports coverage alongside accuracy for both the clean and blurred
+holdouts, plus a risk–coverage curve over fixed thresholds. Selective accuracy
+is accuracy among *answered* fields only: a model can push it to 1.0 by
+answering almost nothing, so coverage is always reported with it.
+
+The curve carries a `confidence_diagnostic` that states whether abstaining
+actually helps, and for this model it reports an honest negative result:
+
+| Holdout | Full-coverage accuracy | Diagnostic |
+|---|---:|---|
+| Clean generator fields | 1.00 | `no_headroom` — nothing to improve; a generator ceiling, not an iPSC result |
+| Two 3×3 box blurs | 0.767 | `does_not_improve` — selective accuracy *falls* as coverage falls |
+
+On blurred fields this model's confidence does not rank correctness, so
+thresholding it buys nothing there. That is a property worth knowing before
+trusting any confidence score under acquisition shift, and it is reported rather
+than left for a reader to notice. Thresholds on the curve are fixed, not chosen
+to look good; picking one by inspecting the curve would make its coverage and
+accuracy development estimates rather than predictions for new fields.
+
 ### Visual HTML Triage Report
 
 Passing `--html <path>` to `predict` generates a self-contained, standalone visual HTML report containing:
