@@ -65,6 +65,22 @@ class ManifestTests(unittest.TestCase):
             row = next(csv.DictReader(handle))
         np.testing.assert_allclose([float(row[f"f_{name}"]) for name in FEATURE_NAMES], expected_features)
 
+    def test_export_columns_form_the_contract_regen_benchmark_kit_reads(self):
+        # regenbench groups on donor_id/batch_id/group_id and takes every f_* column as a feature.
+        self.manifest.write_text("sample_id,image_path,label,group_id,donor_id,batch_id\n"
+                                 "s1,field.pgm,undifferentiated,plate1,d1,b1\n")
+        output = self.root / "contract.csv"
+        export_features(self.manifest, output)
+        with output.open() as handle:
+            reader = csv.DictReader(handle)
+            header, rows = reader.fieldnames, list(reader)
+        self.assertEqual(header[:6], ["sample_id", "label", "group_id", "donor_id", "batch_id", "image_sha256"])
+        self.assertEqual([c for c in header if c.startswith("f_")], [f"f_{n}" for n in FEATURE_NAMES])
+        self.assertEqual(header, header[:6] + [f"f_{n}" for n in FEATURE_NAMES])
+        self.assertEqual((rows[0]["donor_id"], rows[0]["batch_id"]), ("d1", "b1"))
+        for name in FEATURE_NAMES:
+            self.assertTrue(np.isfinite(float(rows[0][f"f_{name}"])))
+
     def test_duplicate_image_under_new_id_is_rejected(self):
         with self.manifest.open("a") as handle:
             handle.write("s2,field.pgm,undifferentiated,plate2,d2\n")
